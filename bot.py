@@ -1,25 +1,22 @@
-﻿import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import logging
+import os
 import requests
 import re
-import os
-from config import BOT_TOKEN, DOWNLOAD_PATH, MAX_FILE_SIZE
+from telegram import Update
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from config import BOT_TOKEN
 
 # Log sozlash
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
-
-# Yuklab olish papkasini yaratish
-if not os.path.exists(DOWNLOAD_PATH):
-    os.makedirs(DOWNLOAD_PATH)
+logger = logging.getLogger(__name__)
 
 # TikTok video yuklab olish funksiyasi
-async def download_tiktok_video(url, chat_id, context):
+def download_tiktok_video(url, chat_id, context):
     try:
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+        context.bot.send_chat_action(chat_id=chat_id, action="typing")
         
         # TikTok video ma'lumotlarini olish
         api_url = f"https://www.tikwm.com/api/?url={url}"
@@ -30,8 +27,8 @@ async def download_tiktok_video(url, chat_id, context):
         if data.get('code') == 0:
             video_url = data['data']['play']
             
-            # Videoni yuborish (caption siz)
-            await context.bot.send_video(
+            # Videoni yuborish
+            context.bot.send_video(
                 chat_id=chat_id,
                 video=video_url,
                 caption="🎵 Video muvaffaqiyatli yuklab olindi!\n\n" +
@@ -39,20 +36,20 @@ async def download_tiktok_video(url, chat_id, context):
                        "🎮 PUBG MOBILE uchun ARZON UC SERVICE @ZakirShaX"
             )
         else:
-            await context.bot.send_message(
+            context.bot.send_message(
                 chat_id=chat_id,
                 text="❌ Video yuklab olinmadi. Iltimos, linkni tekshiring yoki boshqa video yuboring."
             )
             
     except Exception as e:
-        logging.error(f"Xatolik: {str(e)}")
-        await context.bot.send_message(
+        logger.error(f"Xatolik: {str(e)}")
+        context.bot.send_message(
             chat_id=chat_id,
             text="❌ Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring."
         )
 
 # Start komandasi
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def start(update: Update, context: CallbackContext):
     user = update.message.from_user
     welcome_text = f"""
 👋 Salom {user.first_name}!
@@ -63,10 +60,10 @@ Menga TikTokdan link tashlang, men uni original holida video qilib sizga yuboram
 
 🎮 PUBG MOBILE uchun ARZON UC SERVICE: @ZakirShaX
     """
-    await update.message.reply_text(welcome_text)
+    update.message.reply_text(welcome_text)
 
 # Yordam komandasi
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def help_command(update: Update, context: CallbackContext):
     help_text = """
 📖 **Botdan qanday foydalaniladi?**
 
@@ -82,10 +79,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🎮 PUBG MOBILE uchun ARZON UC SERVICE: @ZakirShaX
 🤖 Bizning bot: @tiktokdan_yuklabot
     """
-    await update.message.reply_text(help_text)
+    update.message.reply_text(help_text)
 
 # Xabarlarni qayta ishlash
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_message(update: Update, context: CallbackContext):
     message_text = update.message.text
     
     # TikTok linkini tekshirish
@@ -98,31 +95,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_tiktok_link = any(re.match(pattern, message_text) for pattern in tiktok_patterns)
     
     if is_tiktok_link:
-        await update.message.reply_text("⏳ Video yuklanmoqda... VIDEOda xechqanday egasini nomi chiqmaydi!")
-        await download_tiktok_video(message_text, update.message.chat_id, context)
+        update.message.reply_text("⏳ Video yuklanmoqda... VIDEOda xechqanday egasini nomi chiqmaydi!")
+        download_tiktok_video(message_text, update.message.chat_id, context)
     else:
-        await update.message.reply_text(
+        update.message.reply_text(
             "❌ Iltimos, faqat TikTok linkini yuboring!\n\n" +
             "📎 Namuna: https://vm.tiktok.com/xxxxxxxxx/\n" +
             "Yoki /help buyrug'i bilan yordam oling.\n\n" +
             "🎮 PUBG MOBILE uchun ARZON UC SERVICE: @ZakirShaX"
         )
 
+# Xatolik handleri
+def error(update: Update, context: CallbackContext):
+    logger.warning(f'Update "{update}" caused error "{context.error}"')
+
 # Asosiy funksiya
 def main():
-    # Botni yaratish
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Botni yaratish (eski versiya uchun)
+    updater = Updater(BOT_TOKEN, use_context=True)
+    
+    # Dispatcher
+    dp = updater.dispatcher
     
     # Handlerlarni qo'shish
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    dp.add_handler(CommandHandler("start", start))
+    dp.add_handler(CommandHandler("help", help_command))
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_message))
+    
+    # Xatolik handleri
+    dp.add_error_handler(error)
     
     # Botni ishga tushurish
     print("🤖 Bot ishga tushdi...")
     print("🤖 Bot username: @tiktokdan_yuklabot")
     print("🎮 PUBG UC: @ZakirShaX")
-    application.run_polling()
+    
+    # Polling ni boshlash
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == '__main__':
     main()
